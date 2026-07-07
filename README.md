@@ -1,1 +1,3 @@
 # snacks-duel
+
+**Snack Duel** is a two-player interactive memory card game built using **HTML, CSS, and JavaScript**. Players take turns flipping cards to find matching pairs while using special abilities such as **Peek** to briefly reveal all cards and **Sabotage** to shuffle the opponent's unmatched cards. The game features smooth card-flip animations, a responsive user interface, turn-based gameplay, dynamic state management, and a winner announcement modal. A mock C++ backend engine is simulated within JavaScript to handle card matching and shuffling logic, providing a simple demonstration of frontend and backend interaction.
