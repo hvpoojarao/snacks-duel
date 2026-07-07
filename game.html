@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Snack Duel | Tactical C++ Edition</title>
+    <style>
+        :root {
+            --p1: #8c927d; --p2: #a39171;
+            --sabotage: #d9534f; --peek: #5bc0de;
+        }
+
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background-color: #f8f5f2;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            perspective: 1000px;
+        }
+
+        .world { display: flex; gap: 40px; margin-top: 20px; }
+
+        .card {
+            width: 80px; height: 80px;
+            cursor: pointer;
+            position: relative;
+            transform-style: preserve-3d;
+            transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .card.is-flipped { transform: rotateY(180deg); }
+
+        .card-face {
+            position: absolute;
+            width: 100%; height: 100%;
+            backface-visibility: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2rem;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+
+        .card-front { background: white; transform: rotateY(180deg); border: 2px solid #ddd; }
+        .card-back { background: #e2ddd6; border: 2px solid #c9c1b5; color: #a39171; font-weight: bold; }
+
+        .panel { 
+            background: white; padding: 25px; border-radius: 15px; 
+            border: 3px solid transparent; transition: 0.4s; 
+        }
+        .active { border-color: var(--p1); transform: translateY(-5px); }
+        .inactive { opacity: 0.3; pointer-events: none; filter: grayscale(0.5); }
+
+        .grid { display: grid; grid-template-columns: repeat(3, 85px); gap: 12px; }
+
+        .controls { margin-top: 20px; display: flex; gap: 10px; }
+        button {
+            flex: 1; padding: 10px; border: none; border-radius: 6px;
+            color: white; font-weight: bold; cursor: pointer; transition: 0.2s;
+        }
+        .btn-sab { background: var(--sabotage); }
+        .btn-peek { background: var(--peek); }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+
+        #modal {
+            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            background: white; padding: 50px; border: 4px solid var(--p1);
+            display: none; z-index: 100; text-align: center; border-radius: 20px;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>SNACK DUEL</h1>
+    <h2 id="turn-display" style="color: var(--p1)">Player 1's Turn</h2>
+
+    <div class="world">
+        <div id="p1-panel" class="panel active">
+            <div class="grid" id="p1-grid"></div>
+            <div class="controls">
+                <button id="p1-peek" class="btn-peek" onclick="usePeek('p1')">👁️ Peek (1)</button>
+                <button id="p1-sab" class="btn-sab" onclick="useSabotage('p1')">🌪️ Sabotage (3)</button>
+            </div>
+        </div>
+
+        <div id="p2-panel" class="panel inactive">
+            <div class="grid" id="p2-grid"></div>
+            <div class="controls">
+                <button id="p2-peek" class="btn-peek" onclick="usePeek('p2')">👁️ Peek (1)</button>
+                <button id="p2-sab" class="btn-sab" onclick="useSabotage('p2')">🌪️ Sabotage (3)</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal">
+        <h2 id="win-txt"></h2>
+        <button onclick="location.reload()" style="background: #333; margin-top: 20px;">Play Again?</button>
+    </div>
+
+    <script>
+        // Mock C++ Backend Engine inside JS
+        const CppEngine = {
+            verify: (v1, v2) => v1 === v2,
+            shuffle: (board, matched) => {
+                let unMatchedIndices = board.map((v, i) => i).filter(i => !matched[i]);
+                let values = unMatchedIndices.map(i => board[i]).sort(() => Math.random() - 0.5);
+                unMatchedIndices.forEach((idx, i) => board[idx] = values[i]);
+                return board;
+            }
+        };
+
+        const icons = ['🍿', '🍔', '🍟', '🍜', '🍕', '🥪'];
+        let activeP = 'p1';
+        
+        // Game State Object
+        let state = {
+            p1: { board: [], matched: [], sab: 3, peek: 1, flipped: [] },
+            p2: { board: [], matched: [], sab: 3, peek: 1, flipped: [] }
+        };
+
+        function init(pId) {
+            const deck = [...icons, ...icons].sort(() => Math.random() - 0.5);
+            state[pId].board = deck;
+            state[pId].matched = new Array(12).fill(false);
+            render(pId);
+        }
+
+        function render(pId) {
+            const grid = document.getElementById(`${pId}-grid`);
+            grid.innerHTML = '';
+            state[pId].board.forEach((icon, i) => {
+                const card = document.createElement('div');
+                card.className = `card ${state[pId].matched[i] ? 'is-flipped' : ''}`;
+                card.innerHTML = `
+                    <div class="card-face card-back">?</div>
+                    <div class="card-face card-front">${icon}</div>
+                `;
+                card.onclick = () => handleFlip(pId, i, card);
+                grid.appendChild(card);
+            });
+        }
+
+        function handleFlip(pId, i, el) {
+            const p = state[pId];
+            if (pId !== activeP || p.flipped.length >= 2 || p.matched[i] || el.classList.contains('is-flipped')) return;
+
+            el.classList.add('is-flipped');
+            p.flipped.push({index: i, element: el});
+
+            if (p.flipped.length === 2) {
+                const [a, b] = p.flipped;
+                
+                if (CppEngine.verify(p.board[a.index], p.board[b.index])) {
+                    p.matched[a.index] = p.matched[b.index] = true;
+                    p.flipped = [];
+                    if (p.matched.every(v => v)) endGame(pId);
+                } else {
+                    setTimeout(() => {
+                        a.element.classList.remove('is-flipped');
+                        b.element.classList.remove('is-flipped');
+                        p.flipped = [];
+                        switchTurn();
+                    }, 1000);
+                }
+            }
+        }
+
+        function usePeek(pId) {
+            state[pId].peek--;
+            document.getElementById(`${pId}-peek`).disabled = true;
+            const cards = document.getElementById(`${pId}-grid`).querySelectorAll('.card');
+            
+            // Temporarily flip all cards
+            cards.forEach(c => c.classList.add('is-flipped'));
+            
+            setTimeout(() => {
+                // Revert unmatched cards
+                cards.forEach((c, i) => {
+                    if (!state[pId].matched[i]) c.classList.remove('is-flipped');
+                });
+                switchTurn();
+            }, 1000);
+        }
+
+        function useSabotage(pId) {
+            state[pId].sab--;
+            const target = pId === 'p1' ? 'p2' : 'p1';
+          
+            // Shuffle the opponent's unmatched cards
+            state[target].board = CppEngine.shuffle(state[target].board, state[target].matched);
+            render(target);
+            
+            const btn = document.getElementById(`${pId}-sab`);
+            btn.innerText = `🌪️ Sabotage (${state[pId].sab})`;
+            if (state[pId].sab === 0) btn.disabled = true;
+            switchTurn();
+        }
+
+        function switchTurn() {
+            activeP = (activeP === 'p1') ? 'p2' : 'p1';
+            document.getElementById('p1-panel').className = `panel ${activeP === 'p1' ? 'active' : 'inactive'}`;
+            document.getElementById('p2-panel').className = `panel ${activeP === 'p2' ? 'active' : 'inactive'}`;
+            const display = document.getElementById('turn-display');
+            display.innerText = `Player ${activeP === 'p1' ? '1' : '2'}'s Turn`;
+            display.style.color = `var(--${activeP})`;
+        }
+
+        function endGame(pId) {
+            document.getElementById('modal').style.display = 'block';
+            document.getElementById('win-txt').innerText = `🏆 PLAYER ${pId === 'p1' ? '1' : '2'} WINS!`;
+        }
+
+        init('p1'); init('p2');
+    </script>
+</body>
+</html>
